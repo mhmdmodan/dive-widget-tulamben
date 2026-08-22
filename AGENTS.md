@@ -1,78 +1,156 @@
 # Repository Guidelines
 
-## Purpose and Current State
+## Purpose and current state
 
-This repository contains a dependency-light browser widget for planning dives between Kubu, Tulamben, and Amed, Bali. It is a planning aid, not a navigation or dive-safety product. The UI forecasts the next 48 hours, plots eight sites, and explains a heuristic quality score.
+A dependency-light browser widget for planning dives between Kubu, Tulamben and
+Amed, Bali. It is a planning aid, not a navigation or dive-safety product.
 
-The application is static: `index.html` defines the UI, `styles.css` contains the responsive theme and local Leaflet structural fallback rules, and `app.js` owns data retrieval, dive-site metadata, scoring, and rendering. `README.md` contains basic usage and limitations. There is no build system, package manager, backend, or automated test suite.
+The app is static: no build system, package manager, backend, or automated test
+suite. Leaflet from a CDN is the only runtime dependency.
 
-## Running and Validation
+**Read `docs/` before changing behaviour.** It is short and current:
 
-Serve the directory over HTTP; do not rely on `file://`:
+- `docs/architecture.md` — file map, how to run and validate, rendering decisions
+- `docs/scoring.md` — the score, factor by factor, with calibration tables
+- `docs/data-sources.md` — APIs, the model-resolution problem, baked geodata
+- `docs/current-field.md` — the current interpolation behind the site readout
+- `docs/plan.md` — the analysis that drove the 2026-08 rework
+
+## Running and validation
 
 ```bash
-python -m http.server 8000
-```
-
-Open `http://localhost:8000`. Before handing off changes, run:
-
-```bash
-node --check app.js
+python3 -m http.server 8000        # file:// will not work; ES modules need HTTP
+for f in app.js src/*.js; do node --input-type=module --check < "$f" || echo "FAIL $f"; done
 git diff --check
 ```
 
-Visual validation matters because Leaflet failures can pass syntax checks. Chrome is installed at `/usr/bin/google-chrome-stable`. A useful headless check is:
+**Check in module mode, not `node --check <file>`.** Plain `node --check` parses
+as a script and silently accepts things ES modules reject — a duplicate `const`
+in the same block passed it and then blew up in the browser. Redirect the file
+into `--input-type=module --check` instead.
 
-```bash
-google-chrome-stable --headless=new --no-sandbox --disable-dev-shm-usage \
-  --window-size=1440,1000 --virtual-time-budget=12000 \
-  --screenshot=/tmp/tulamben.png http://127.0.0.1:8000
-```
+Visual validation matters — Leaflet and layout failures pass syntax checks.
+Chrome is at `/usr/bin/google-chrome-stable`; also check around 390x844.
 
-Also test approximately `390x844` for mobile.
+Browsers cache ES modules hard. If an edit does not show up, serve on a different
+port rather than trusting a reload. This wastes real time otherwise.
 
-## Live Data Architecture
+## Things that will bite you
 
-The browser calls Open-Meteo directly. This works without a backend because Open-Meteo permits cross-origin browser requests and requires no secret API key.
+**`src/sites.js` is generated.** Edit the calibration in
+`tools/bake-geodata.py` and re-run it. Editing the generated file directly will
+be silently overwritten.
 
-- Marine endpoint: `marine-api.open-meteo.com/v1/marine`
-- Weather endpoint: `api.open-meteo.com/v1/forecast`
-- Map layer: CARTO Voyager, derived from OpenStreetMap and visibly attributed
-- Map library: Leaflet 1.9.4 loaded from unpkg
+**Marine and weather series must stay index-aligned.** Both requests use the same
+`past_days`/`forecast_days`. `api.js` asserts alignment on load; if you change one
+request's window, change both.
 
-`loadForecast()` requests four calendar days so 48 hours remain available even late in the current day. It requests all site coordinates in one marine call and central-area weather in a second call. Times are returned in `Asia/Makassar`; `forecastDate()` explicitly parses them as UTC+8. Reloading obtains a new model run. The app does not currently poll or display the source model’s update timestamp.
+**Bearing conventions.** Wave and wind directions are "from"; current direction is
+"toward". `shoreNormalDeg` points seaward, so a wave bearing near the shore normal
+is head-on. An inverted `angleDiff` once flipped every directional calculation and
+produced a plausible-looking but entirely wrong result — if sites stop
+differentiating, check this first.
 
-Do not move these calls behind a backend unless secrets, caching, rate limiting, telemetry, or a non-CORS provider makes one necessary.
+**Leaflet's structural CSS is duplicated in `styles.css`.** The CDN stylesheet has
+failed intermittently. Do not remove that block without vendoring the full CSS.
 
-## Scoring and Visibility Logic
+**Markers must be redrawn on every `move`, not just repositioned.**
+`reposition()` pins the canvas to the viewport; the pixels on it were projected
+for the old view, so pills float in screen space while the basemap slides under
+them. During a zoom the canvas rides Leaflet's own animation transform
+(`zoomanim`) and repaints at `zoomend`; container coordinates are meaningless in
+between.
 
-`SITES` contains fixed coordinates and calibration metadata: typical maximum visibility, wave/current sensitivity, runoff sensitivity, exposure, and descriptive context. Forecast conditions are live; these calibration values are not.
+**Never re-create the time slider.** `renderTimeBar` builds the `<input
+type="range">` once and writes only its `value` on later renders. Rebuilding the
+element on every render destroyed the input under the pointer on the first
+`input` event, so dragging the track advanced exactly one hour and stopped. The
+header and scrub markup are replaced freely; the input is not.
 
-`calculate()` begins near 92/100 and subtracts penalties for:
+**The scrub geometry and the slider must agree.** Every mark on the track is
+positioned at `(i - from) / (to - from)` of the width, so the input is styled to
+a 2 px transparent thumb — a normal thumb inset would offset the value mapping
+from the drawn cursor by half a thumb width at each end.
 
-- swell energy (`swell height × period modifier`) and site sediment sensitivity;
-- current above 0.25 km/h and site current sensitivity;
-- prior 24-hour modeled rainfall and runoff sensitivity;
-- wind above 10 km/h and exposure.
+**CARTO basemaps live at `dark_all` / `light_all`,** not
+`rastertiles/dark_matter` (404).
 
-Near-slack modeled tide adds a small bonus. Scores are clamped to 22–96. Estimated visibility starts at each site’s `maxVis`, then applies swell, rain, and strong-current penalties. This is an inference, not measured turbidity. Do not describe it as an observed or scientifically validated visibility forecast.
+**Theming is token-only.** Override custom properties inside
+`@media (prefers-color-scheme: light)` and nothing else; there is no in-app
+theme switch, by design. The canvas layer reads `--pill-bg`, `--pill-ink`,
+`--leader` and the quality colours via `getComputedStyle`, so any new
+map-drawn colour needs a token, not a literal.
 
-Driver explanations use `good`, `neutral`, or `bad` sentiment. The detail panel maps those to green, amber, and red borders. Thresholds for metric cards are defined in `renderSite()` and should remain consistent with scoring changes.
+**`src/currentfield.js` is dormant.** Streamlines were removed, and then the HUD
+stopped reading site-local speed off it, so nothing calls it at runtime and
+`data/bathymetry.json` is no longer fetched by the app. Both are kept for a
+possible bake-time use (deriving `currentSensitivity` from geometry instead of by
+hand) — but note Jemeluk, where the 450 m mask *amplifies* current in a bay the
+hand calibration correctly damps.
 
-## Coordinates and Geographic Caveats
+**Only one current magnitude on screen.** The map HUD shows current *direction*
+only. Strength is site-specific — the same hour reads 0.2 kn at Coral Garden and
+1.2 kn at Amed Pyramids — and when the HUD showed an interpolated speed while the
+panel showed the scored one, the two disagreed by up to 2.2x on the same screen.
+Direction is regional enough to show once; strength is not.
 
-Published coordinates were used for USAT Liberty, Tulamben Drop-Off, Kubu/Boga Wreck, Seraya Secrets, and Jemeluk. Coral Garden, Batu Kelebit, and Amed Pyramids use conservative offshore approximations because public references are inconsistent or describe entry points instead of underwater features. CARTO coastline geometry is generalized, so a valid nearshore underwater coordinate can visually touch the shoreline at low zoom.
+**Tide does not enter the score.** It is displayed only. See docs/scoring.md for
+why the spring/neap multiplier was removed, and never write "slack" where the
+data only supports "high water".
 
-If coordinates are changed, verify them against multiple sources and inspect the rendered map. Never silently substitute a dive-shop address or shore-entry coordinate for an underwater feature.
+## Data architecture
 
-## Important Rendering Decisions
+The browser calls Open-Meteo directly — CORS-enabled, keyless. Do not move this
+behind a backend unless secrets, caching, rate limiting, telemetry, or a
+non-CORS provider makes one necessary.
 
-Leaflet’s external CSS failed intermittently in Chrome, causing transformed tiles and markers to flow as normal elements. Essential pane, tile, marker, control, attribution, and tooltip rules are therefore duplicated locally at the top of `styles.css`. Do not remove these fallback rules without first vendoring the complete Leaflet CSS or proving reliable loading.
+Static geodata (`data/coastline.json`, `data/bathymetry.json`, `src/sites.js`) is
+baked offline by `tools/bake-geodata.py`. Overpass and opentopodata are free
+community services; keep them out of the browser request path.
 
-Map overlays use `z-index: 1100` so they remain above Leaflet panes. The `ResizeObserver` calls `map.invalidateSize()` when responsive layout changes. Marker tooltips intentionally use a dark opaque background because the base map is light.
+## Scoring
 
-## Safety and Future Improvements
+`src/scoring.js`, physics in `src/physics.js`. Each factor returns its inputs and
+the full derivation chain, and the UI renders that directly — so explanations
+cannot drift from the numbers. There is no separate threshold table to keep in
+sync; if you add a factor, give it the same `{points, tone, headline, inputs,
+chain}` shape and it will document itself.
 
-Preserve the visible safety disclaimer and confidence explanation. Open-Meteo states that coastal current/tide resolution is about 8 km and wave resolution about 5 km; neither resolves wreck-scale circulation or sediment. Same-day local reports remain more reliable.
+Two readings are maintained on purpose: an **absolute** score comparable across
+sites, and a **relative** score against that site's own ceiling. Do not collapse
+them — a site's quality cap is real information, and Seraya is an 18 m muck site
+on its best day. But show only **one at a time**: the header switch drives every
+surface through `display(result, mode)`. Putting both on screen at once is what
+made this confusing the first time round.
 
-High-value next steps are automatic data refresh with “last updated” status, observed-condition submissions, calibrated historical validation, separate weather sampling for Amed, a tide curve, marker clustering/labels for the dense Tulamben group, and automated browser interaction tests.
+The site list is in **coast order, not ranked**. Ranking implied a precision the
+model does not have and buried the geography that actually helps you choose.
+"Best next 48 h" lives with the per-site strip in the detail panel.
+
+## Coordinates and geographic caveats
+
+Published coordinates are used for USAT Liberty, Tulamben Drop-Off, Kubu/Boga
+Wreck, Seraya Secrets and Jemeluk. Coral Garden, Batu Kelebit and Amed Pyramids
+use conservative offshore approximations because public references are
+inconsistent or describe entry points rather than underwater features.
+
+If coordinates change, re-run the bake (shore normals and fetch are derived from
+them) and inspect the map. Never substitute a dive-shop address or shore-entry
+coordinate for an underwater feature.
+
+## Safety
+
+Preserve the visible disclaimer and the per-site provenance panel. The honesty
+about model resolution is a feature. Specifically, do not describe estimated
+visibility as observed or validated, and do not describe the site current
+readout as a model or a forecast — it is coastline-aware interpolation of a value
+sampled 15–21 km offshore.
+
+## Worthwhile next steps
+
+- Validate `bedDepthM` and `sediment` against logged visibility. These are the
+  highest-leverage constants in the model and are currently unvalidated guesses.
+- Use multi-model spread (e.g. `gwam` alongside the default) as a real confidence
+  measure instead of the current heuristic.
+- Observed-condition submissions, so the estimate can be checked against reality.
+- Automated browser interaction tests.

@@ -4,77 +4,74 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <meta name="description" content="A planning forecast for dive conditions from Tulamben to Amed, Bali." />
+    <meta name="description" content="A 48-hour planning forecast for dive conditions from Kubu and Tulamben to Amed, Bali." />
     <title>Tulamben Dive Window</title>
-    <link rel="preconnect" href="https://tile.openstreetmap.org" />
+    <link rel="preconnect" href="https://basemaps.cartocdn.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3ynhYGOpMZKmjMZ/RZ+3nMZOWx6p0=" crossorigin="" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="topbar">
-      <div>
+      <div class="brand">
         <p class="eyebrow">NORTHEAST BALI · PLANNING FORECAST</p>
         <h1>Tulamben Dive Window</h1>
       </div>
-      <div id="dataStatus" class="status" role="status"><span></span> Loading forecast…</div>
+      <div class="topbar-right">
+        <label class="mode-toggle" title="Show each site's score as a share of the best it can realistically reach">
+          <input type="checkbox" id="scoreMode" />
+          <span>Relative scores</span>
+        </label>
+        <div class="units" role="group" aria-label="Units">
+          <button data-unit="speed:kn" class="on">kn</button>
+          <button data-unit="speed:kmh">km/h</button>
+          <span class="unit-sep"></span>
+          <button data-unit="length:m" class="on">m</button>
+          <button data-unit="length:ft">ft</button>
+        </div>
+        <div id="dataStatus" class="status" role="status"><span></span> Loading forecast…</div>
+      </div>
     </header>
 
     <main>
-      <section class="controls" aria-label="Forecast time">
-        <button id="prevHour" class="step" aria-label="Previous hour">−</button>
-        <div class="time-control">
-          <div class="time-heading">
-            <label for="timeSlider">Forecast hour</label>
-            <strong id="selectedTime">Loading…</strong>
-          </div>
-          <input id="timeSlider" type="range" min="0" max="48" value="1" step="1" disabled />
-          <div class="range-labels"><span>Now</span><span>+24h</span><span>+48h</span></div>
-        </div>
-        <button id="nextHour" class="step" aria-label="Next hour">+</button>
-      </section>
+      <section id="timeBar" class="timebar" aria-label="Forecast hour"></section>
 
-      <section class="dashboard">
-        <div class="map-wrap">
-          <div id="map" aria-label="Map of dive sites between Tulamben and Amed"></div>
-          <div class="legend" aria-label="Dive quality legend">
+      <div class="grid">
+       <div class="col-main">
+        <section class="map-wrap card" aria-label="Map of dive sites">
+          <div id="map"></div>
+          <div id="hud" class="hud"></div>
+          <div class="legend">
             <span><i class="excellent"></i>Excellent</span><span><i class="good"></i>Good</span>
             <span><i class="fair"></i>Fair</span><span><i class="poor"></i>Poor</span>
           </div>
-          <div id="conditionsOverlay" class="conditions-overlay"></div>
-        </div>
+        </section>
 
-        <aside id="sitePanel" class="site-panel" aria-live="polite">
-          <div class="panel-placeholder">
-            <span class="marker-ghost">◎</span>
-            <h2>Select a dive site</h2>
-            <p>Choose a marker to see the forecast score, visibility drivers, swell, current, and confidence.</p>
-          </div>
-        </aside>
-      </section>
+        <section id="sitePanel" class="card panel" aria-live="polite">
+          <div class="panel-placeholder"><h2>Loading…</h2></div>
+        </section>
+       </div>
 
-      <section class="method-note">
-        <strong>Planning aid, not a safety forecast.</strong>
-        <span>Visibility is a site-calibrated estimate, not an observation. Coastal conditions can differ sharply from the ~5–8 km marine model. Confirm with a local dive operator before entering.</span>
-      </section>
-    </main>
-
-    <template id="siteTemplate">
-      <div class="panel-head">
-        <div><p class="eyebrow site-location"></p><h2 class="site-name"></h2></div>
-        <div class="score-ring"><strong class="score-value"></strong><span>/ 100</span></div>
+       <div class="col-side">
+        <section id="siteList" class="card list-card" aria-label="Dive sites"></section>
+          <section id="weather" class="card wx" aria-label="Weather"></section>
+          <section class="card method">
+            <h3>How to read this</h3>
+            <p>Scores combine swell energy reaching the bed, current, runoff and wind, each
+              weighted by what that particular site is sensitive to. Open any lever in the site
+              panel to see its full derivation.</p>
+            <p>Tide heads the page rather than each site: sea level differs by under 0.03 m
+              across the whole coast. Slack water for <em>current</em> does not line up with
+              high or low tide here — the flow is driven by the Lombok Strait throughflow,
+              which runs out of phase with local sea level.</p>
+            <p><strong>This is a planning aid, not a safety forecast.</strong> Visibility is
+              inferred, never observed. The marine model's nearest wet cell is 15–21 km offshore,
+              so several sites share one forecast and differ only by calibration. Internal waves
+              and the sudden cold down-currents at the Drop-Off are invisible to every public
+              model. Confirm with a local operator before you get in.</p>
+          </section>
+       </div>
       </div>
-      <div class="quality-row"><span class="quality-pill"></span><span class="confidence"></span></div>
-      <p class="site-description"></p>
-      <div class="metrics"></div>
-      <section class="explanation">
-        <h3>What is shaping visibility</h3>
-        <ul class="drivers"></ul>
-      </section>
-      <section class="explanation confidence-note">
-        <h3>Confidence</h3><p></p>
-      </section>
-      <p class="model-note"></p>
-    </template>
+    </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script type="module" src="app.js"></script>
