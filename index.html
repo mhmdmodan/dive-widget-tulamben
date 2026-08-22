@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="description" content="A planning forecast for dive conditions from Tulamben to Amed, Bali." />
+    <title>Tulamben Dive Window</title>
+    <link rel="preconnect" href="https://tile.openstreetmap.org" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3ynhYGOpMZKmjMZ/RZ+3nMZOWx6p0=" crossorigin="" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">NORTHEAST BALI · PLANNING FORECAST</p>
+        <h1>Tulamben Dive Window</h1>
+      </div>
+      <div id="dataStatus" class="status" role="status"><span></span> Loading forecast…</div>
+    </header>
+
+    <main>
+      <section class="controls" aria-label="Forecast time">
+        <button id="prevHour" class="step" aria-label="Previous hour">−</button>
+        <div class="time-control">
+          <div class="time-heading">
+            <label for="timeSlider">Forecast hour</label>
+            <strong id="selectedTime">Loading…</strong>
+          </div>
+          <input id="timeSlider" type="range" min="0" max="48" value="1" step="1" disabled />
+          <div class="range-labels"><span>Now</span><span>+24h</span><span>+48h</span></div>
+        </div>
+        <button id="nextHour" class="step" aria-label="Next hour">+</button>
+      </section>
+
+      <section class="dashboard">
+        <div class="map-wrap">
+          <div id="map" aria-label="Map of dive sites between Tulamben and Amed"></div>
+          <div class="legend" aria-label="Dive quality legend">
+            <span><i class="excellent"></i>Excellent</span><span><i class="good"></i>Good</span>
+            <span><i class="fair"></i>Fair</span><span><i class="poor"></i>Poor</span>
+          </div>
+          <div id="conditionsOverlay" class="conditions-overlay"></div>
+        </div>
+
+        <aside id="sitePanel" class="site-panel" aria-live="polite">
+          <div class="panel-placeholder">
+            <span class="marker-ghost">◎</span>
+            <h2>Select a dive site</h2>
+            <p>Choose a marker to see the forecast score, visibility drivers, swell, current, and confidence.</p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="method-note">
+        <strong>Planning aid, not a safety forecast.</strong>
+        <span>Visibility is a site-calibrated estimate, not an observation. Coastal conditions can differ sharply from the ~5–8 km marine model. Confirm with a local dive operator before entering.</span>
+      </section>
+    </main>
+
+    <template id="siteTemplate">
+      <div class="panel-head">
+        <div><p class="eyebrow site-location"></p><h2 class="site-name"></h2></div>
+        <div class="score-ring"><strong class="score-value"></strong><span>/ 100</span></div>
+      </div>
+      <div class="quality-row"><span class="quality-pill"></span><span class="confidence"></span></div>
+      <p class="site-description"></p>
+      <div class="metrics"></div>
+      <section class="explanation">
+        <h3>What is shaping visibility</h3>
+        <ul class="drivers"></ul>
+      </section>
+      <section class="explanation confidence-note">
+        <h3>Confidence</h3><p></p>
+      </section>
+      <p class="model-note"></p>
+    </template>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
