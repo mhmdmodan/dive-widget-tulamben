@@ -85,8 +85,43 @@ This term is what makes the sites differ on the same forcing. Both wave
 partitions (swell and wind wave) are evaluated and the more damaging one wins —
 the old code silently dropped the wind wave.
 
-Penalty: `min(48, max(0, u_b - u_crit) * 165)` where
-`u_crit = 0.09 / sediment` — finer, lighter substrate moves sooner.
+Penalty: `min(48, suspended * 165)` where `suspended` is the settling state
+below, and `u_crit = 0.09 / sediment` — finer, lighter substrate moves sooner.
+
+#### Settling memory
+
+Sediment does not fall out of the water column the moment the swell drops.
+Scoring an hour on that hour's forcing alone reports a clean afternoon after a
+rough morning — precisely when the water is worst. So the excess orbital velocity
+is treated as a source term driving a state that decays:
+
+```js
+suspended[i] = max(source[i], suspended[i-1] * exp(-1 / tau))
+```
+
+`max` rather than a symmetric filter because the physics is asymmetric: stirring
+reaches quasi-equilibrium within the hour, settling takes hours. A smoothing
+filter would smear the leading edge of a swell event that arrives quickly.
+
+```js
+tau = clamp(2.0 + 3.6 * sediment, 3, 9)   // hours
+```
+
+Coral Garden's cobble (0.85) clears in about 5 h; Seraya's very fine black sand
+(1.35) takes nearly 7. Stokes settling puts fine sand (~125 µm) on the bed within
+the hour and silt (~20 µm) many hours later, and the murk is the fine tail of the
+mix, so a few hours is the right order of magnitude — but the number is a
+calibration, not a measurement. It is the single most useful thing to tune
+against your own dives.
+
+The same recursion runs forward, so a forecast hour inherits murk from a forecast
+swell event 6 h before it. It runs over the whole loaded window from
+`src/history.js`, memoised per payload: the request already carries 72 h of past
+hours, so nothing is cached between page loads and no backend is involved.
+
+Those past hours are the marine model's own hindcast, not observations. If the
+model had this morning wrong, the memory inherits the error — it just stops
+compounding it into a falsely perfect afternoon.
 
 ### Current
 
@@ -115,13 +150,17 @@ predict.
 ### Runoff
 
 ```js
-points = min(26, rain24 ^ 0.7 * 2.2 * runoff)
+plume[i] = plume[i-1] * exp(-1 / 30) + rain[i]        // hours
+points   = min(26, (plume * (1 - exp(-1/30)) * 24) ^ 0.7 * 2.2 * runoff)
 ```
 
 The `^0.7` compression reflects that the first few millimetres wash off the most
-material. `rain24` is a genuine 24 hours — the API request carries `past_days=2`,
-which the previous version did not, so a dawn dive no longer sums 7 hours and
-calls it a day.
+material. The rainfall itself is exponentially weighted rather than summed over a
+flat 24 h box: a plume thins out gradually instead of every millimetre counting
+in full for a day and then vanishing on the hour. The 30 h constant is slower than
+sand's because a plume is fines and fresh water. The normalisation makes steady
+rain read exactly the same number as the 24 h box sum it replaced — only bursts
+differ, which is the point.
 
 ### Wind and surface
 
@@ -140,11 +179,16 @@ condition, which made it decorative.
 **Visibility** attenuates multiplicatively, because turbidity sources compound:
 
 ```js
-vis = maxVis * exp(-(3.0 * stirExcess + 0.030 * rainPoints + 0.10 * max(0, effKn - 0.8)))
+vis = maxVis * exp(-(3.0 * suspended + 0.030 * rainPoints + 0.10 * max(0, effKn - 0.8)))
 ```
 
 The reported band widens with lead time, from ±15% at the current hour to ±40% at
 +48 h. It is an inference from wave energy and runoff, never an observation.
+
+Visibility does not feed the score, and the score does not feed visibility — that
+would double-count. They are siblings off the same `suspended` state, which is
+why they can never disagree: if the memory says the water is still clouded, both
+the number and the score say so.
 
 **Difficulty** is a separate question from clarity — a 1.5 kn drift in 30 m
 visibility is a great dive for some divers and disqualifying for others:

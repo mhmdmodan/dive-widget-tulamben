@@ -3,6 +3,7 @@
 import { SITES, SITE_BY_ID } from "./src/sites.js";
 import { loadForecast, sample, marineSeries, nowIndex, parseTime } from "./src/api.js";
 import { tideState, KMH_TO_KN } from "./src/physics.js";
+import { history } from "./src/history.js";
 import { evaluate } from "./src/scoring.js";
 import { DiveMap } from "./src/map.js";
 import * as ui from "./src/ui.js";
@@ -26,6 +27,11 @@ let diveMap = null;
 function resultAt(site, i) {
   const n = SITES.indexOf(site);
   const s = sample(state.data, n, i);
+  // Sediment and runoff carry over from earlier hours, so scoring gets the
+  // settling state at `i`, not just the forcing at `i`. Memoised per payload.
+  const h = history(state.data, n, site);
+  s.stir = h.stir[i];
+  s.rainMem = h.rain[i];
   const tide = tideState(marineSeries(state.data, n), i);
   return { r: evaluate(site, s, tide, i - state.nowIdx), s, tide };
 }

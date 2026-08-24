@@ -376,3 +376,44 @@ does not mean slack current here."
 bake-time use — deriving `currentSensitivity` from geometry — but Jemeluk is a
 warning: the 450 m mask amplifies current in a bay that is genuinely sheltered,
 where the hand-set ×0.55 is closer to reality.
+
+## Fifth round: the water remembers
+
+Reported from a real dive: swell was high in the morning, dropped away by
+midday, the model called the afternoon excellent, and the water was still full of
+sediment. It was right about the swell and wrong about the dive.
+
+**Sediment now has a settling memory.** **[done]** Visibility and the swell
+penalty were computed from the selected hour's near-bed orbital velocity alone,
+so the instant the model's swell fell under a site's threshold the score jumped
+and visibility snapped to the site ceiling. `src/history.js` replaces that with a
+state: `suspended[i] = max(source[i], suspended[i-1] * exp(-1/tau))`, with `tau`
+from the site's `sediment` (about 5 h for Coral Garden's cobble, 7 h for Seraya's
+fine sand). Asymmetric on purpose — stirring is fast, settling is slow.
+
+Measured on the live payload the day it went in: at the Liberty the old model
+went 73 → 83 and 20.5 m → 24.7 m of visibility in the single hour the swell
+dropped; the new one goes 73 → 74 and clears back over the following six hours.
+At Seraya, where the swell direction swung offshore mid-morning, the old model
+read a flat 69 all afternoon and the new one reads 49 recovering to 66.
+
+**Runoff got the same treatment.** **[done]** The flat 24 h box sum counted a
+23-hour-old millimetre in full and then dropped it on the hour. It is now an
+exponentially weighted sum with a 30 h constant, normalised so steady rain reads
+exactly the same number as before — only bursts differ.
+
+**No backend, and none needed.** The forecast request already returns past hours
+alongside the forecast; `past_days` went 2 → 3 to warm both recursions. The
+recursion runs forward too, so a forecast hour inherits murk from a forecast
+swell event before it. `history.js` is memoised per payload, so a full render is
+one pass per site rather than one per hour per site.
+
+**Deliberately not done.** Current does not shorten `tau`. Flow really does
+advect sediment away, but it is a second free parameter that nobody here can
+calibrate and it works against the current term already in the visibility
+attenuation. Not until `tau` alone has been checked against real dives.
+
+**Still unvalidated.** `tau` is set from the physics of Stokes settling, not from
+a single observed dive, and the past hours it runs over are the marine model's
+own hindcast rather than observations. The memory does not fix a wrong morning —
+it stops the model compounding one into a falsely perfect afternoon.

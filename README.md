@@ -24,6 +24,9 @@ Open `http://localhost:8000`.
   to see its inputs, each step of the calculation, and the site constant involved.
 - **Separate visibility and effort readings**, because a strong drift in clear
   water is a good dive for some people and a non-starter for others.
+- **A memory of the last day.** Sediment stirred up this morning takes hours to
+  settle, so a calm afternoon after a rough morning still reads murky instead of
+  snapping back to the site's best.
 - **Weather separately from water**: air temperature, wind, rain, cloud, UV,
   sunrise and sunset.
 - **A scrub bar you can drag through the next 48 hours**, banded by day and
@@ -44,8 +47,10 @@ Open `http://localhost:8000`.
 Swell is gated by how much energy actually reaches each shore (ray-cast fetch
 against the OSM coastline, plus refraction), then converted to near-bed orbital
 velocity via linear wave theory — so period and depth matter, not just wave
-height. Current is scaled by site topography and the observed tidal range.
-Runoff, wind direction and fetch do the rest.
+height. That stirring drives a suspended-sediment state that decays over hours
+rather than resetting each hour, which is what makes the afternoon after a swell
+read honestly. Current is scaled by site topography; tide is reported but does
+not enter the score. Runoff, wind direction and fetch do the rest.
 
 Full detail in [`docs/`](docs/): [scoring](docs/scoring.md),
 [data sources](docs/data-sources.md), [the current field](docs/current-field.md),

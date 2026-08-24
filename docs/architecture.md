@@ -40,6 +40,7 @@ app.js                entry point: state, event wiring, refresh loop
 src/sites.js          GENERATED -- site table (calibration + derived geometry)
 src/api.js            Open-Meteo access, sampling, model-cell bookkeeping
 src/physics.js        wave theory, directional exposure, tide analysis. Pure functions
+src/history.js        settling and runoff memory: what is still in the water
 src/scoring.js        the score, decomposed into inspectable factors
 src/currentfield.js   coastline-aware current interpolation (see current-field.md)
 src/charts.js         scrub track (tide, day/night), score bar, 48 h strip
@@ -59,9 +60,14 @@ docs/                 this documentation
 tools/bake-geodata.py  ──(once, offline)──>  data/*.json + src/sites.js
                                                     │
 Open-Meteo (marine + weather) ──> api.js ──> sample() ──> scoring.js ──> ui.js
-                                                    │                      │
+                                        │           ↑                      │
+                                        └─> history.js                     │
                                               currentfield.js ──> map.js ──┘
 ```
+
+`history.js` is the one place that looks at hours other than the selected one.
+Everything downstream of it still sees a single flat sample; the settling state
+rides along on it as `sample.stir` and `sample.rainMem`.
 
 `app.js` holds all mutable state in one `state` object. Everything else is either
 a pure function or a render function that takes an explicit context object. There

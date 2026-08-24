@@ -4,7 +4,7 @@
 import { SITES } from "./sites.js";
 
 const TZ = "Asia%2FMakassar";
-const PAST_DAYS = 2;      // gives rainHistory a genuine 24 h even at 06:00
+const PAST_DAYS = 3;      // warm-up for the settling and runoff memories in history.js
 const FCST_DAYS = 4;
 
 const MARINE = ["wave_height","wave_direction","wave_period",

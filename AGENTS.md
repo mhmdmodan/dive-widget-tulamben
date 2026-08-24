@@ -116,6 +116,19 @@ cannot drift from the numbers. There is no separate threshold table to keep in
 sync; if you add a factor, give it the same `{points, tone, headline, inputs,
 chain}` shape and it will document itself.
 
+**Conditions have memory, and the score must keep it.** `src/history.js` runs the
+settling and runoff recursions over every loaded hour and hands the state to
+scoring on the sample (`sample.stir`, `sample.rainMem`). Do not go back to
+scoring an hour on that hour's forcing alone: it reports a clean afternoon after
+a rough morning, which is exactly when the water is worst. `history.js` imports
+from `physics.js` only — keep scoring out of its dependencies, and keep
+`stirSource` in `physics.js` so the cycle stays broken. The API request carries
+`past_days=3` to warm both recursions; do not reduce it.
+
+**Visibility and the score are siblings, not a chain.** Both derive from the same
+suspended-sediment state. Never feed one into the other — that double-counts —
+and never let one move without the other.
+
 Two readings are maintained on purpose: an **absolute** score comparable across
 sites, and a **relative** score against that site's own ceiling. Do not collapse
 them — a site's quality cap is real information, and Seraya is an 18 m muck site
@@ -148,8 +161,10 @@ sampled 15–21 km offshore.
 
 ## Worthwhile next steps
 
-- Validate `bedDepthM` and `sediment` against logged visibility. These are the
-  highest-leverage constants in the model and are currently unvalidated guesses.
+- Validate `bedDepthM`, `sediment` and the settling time constant `tau` against
+  logged visibility. These are the highest-leverage constants in the model and
+  are currently unvalidated guesses. `tau` in particular is calibrated only
+  against the physics of Stokes settling, not against a single observed dive.
 - Use multi-model spread (e.g. `gwam` alongside the default) as a real confidence
   measure instead of the current heuristic.
 - Observed-condition submissions, so the estimate can be checked against reality.

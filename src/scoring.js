@@ -3,9 +3,10 @@
 // the inputs, the transformation, and the site constant that shaped it.
 
 import {
-  clamp, orbitalVelocity, criticalVelocity, directionalExposure, onshoreFraction,
+  clamp, stirSource, criticalVelocity, directionalExposure, onshoreFraction,
   fetchAt, compass, KMH_TO_KN, angleDiff,
 } from "./physics.js";
+import { RUNOFF_HOURS } from "./history.js";
 
 const P = {
   stirGain: 165,     // points per m/s of excess near-bed orbital velocity
@@ -32,24 +33,21 @@ const f1 = (n, d = 1) => (n == null || !Number.isFinite(n) ? "--" : n.toFixed(d)
 /* ------------------------------------------------------------------ factors */
 
 function swellFactor(site, s) {
-  // Take the more damaging of the swell and wind-wave partitions rather than
-  // silently dropping one, then gate it by how much actually reaches this shore.
-  const parts = [
-    { name: "swell", h: s.swellH, t: s.swellT, dir: s.swellDir },
-    { name: "wind wave", h: s.windWaveH, t: s.windWaveT, dir: s.windWaveDir },
-  ].filter((p) => p.h > 0 && p.t > 0);
-  if (!parts.length) parts.push({ name: "sea", h: s.waveH ?? 0, t: s.waveT ?? 6, dir: s.waveDir });
+  const best = stirSource(site, s);
+  const uCrit = best.uCrit;
 
-  let best = null;
-  for (const p of parts) {
-    const exposure = directionalExposure(site, p.dir);
-    const hEff = p.h * exposure;
-    const ub = orbitalVelocity(hEff, p.t, site.bedDepthM);
-    if (!best || ub > best.ub) best = { ...p, exposure, hEff, ub };
-  }
+  // What clouds the water is what is *suspended*, not what is being stirred
+  // this instant. s.stir carries the settling state from src/history.js; the
+  // instantaneous value is the fallback for callers with no series behind them,
+  // such as siteCeiling().
+  const mem = s.stir;
+  const excess = mem ? mem.excess : best.excess;
+  // Only call it settling when the leftover is worth at least a point; a 2%
+  // trace from two days ago is not something to write a sentence about.
+  const settling = !!mem && mem.excess - mem.now > 1 / P.stirGain;
+  const held = settling && mem.peakExcess > 0 ? excess / mem.peakExcess : 1;
+  const hoursSince = settling ? mem.age : 0;
 
-  const uCrit = criticalVelocity(site.sediment);
-  const excess = Math.max(0, best.ub - uCrit);
   const points = Math.min(P.stirCap, excess * P.stirGain);
   const theta = best.dir == null ? null : angleDiff(best.dir, site.shoreNormalDeg);
   const shadowed = best.exposure < 0.2;
@@ -60,18 +58,25 @@ function swellFactor(site, s) {
     points,
     ub: best.ub,
     uCrit,
+    excess,
+    settling,
     hEff: best.hEff,
     exposure: best.exposure,
     tone: points > 14 ? "bad" : points > 5 ? "warn" : "good",
-    headline: shadowed
+    headline: settling
+      ? `Still clearing: stirred up ${hoursSince} h ago, ~${Math.round(held * 100)}% of it still suspended`
+      : shadowed
       ? `Largely shadowed - ${f1(best.h, 2)} m ${best.name} from ${compass(best.dir)} arrives at ${f1(best.hEff, 2)} m`
       : `${f1(best.hEff, 2)} m of ${f1(best.t, 0)} s ${best.name} reaching a ${site.bedDepthM} m bed`,
     inputs: [
       ["Offshore " + best.name, `${f1(best.h, 2)} m at ${f1(best.t, 0)} s from ${compass(best.dir)}`],
-      ["This shore faces", `${site.shoreNormalDeg}° (${compass(site.shoreNormalDeg)})`],
-      ["Angle off shore normal", theta == null ? "--" : `${f1(theta, 0)}°`],
+      ["This shore faces", `${site.shoreNormalDeg}\u00b0 (${compass(site.shoreNormalDeg)})`],
+      ["Angle off shore normal", theta == null ? "--" : `${f1(theta, 0)}\u00b0`],
       ["Open-water fetch that way", `${f1(fetchAt(site, best.dir ?? 0), 0)} km`],
       ["Sediment bed depth", `${site.bedDepthM} m`],
+      ["Stirring, this hour", `${f1(best.excess, 3)} m/s over threshold`],
+      ...(settling ? [[`Peak stirring, ${hoursSince} h ago`, `${f1(mem.peakExcess, 3)} m/s over threshold`]] : []),
+      ["Still suspended", `${f1(excess, 3)} m/s equivalent`],
     ],
     chain: [
       ["Directional exposure",
@@ -81,12 +86,17 @@ function swellFactor(site, s) {
        `${f1(best.h, 2)} m offshore becomes ${f1(best.hEff, 2)} m here.`,
        `${f1(best.hEff, 2)} m`],
       ["Near-bed orbital velocity",
-       `Linear wave theory: u = πH / (T·sinh kd) at ${site.bedDepthM} m. Longer periods reach deeper, which is why period matters as much as height.`,
+       `Linear wave theory: u = \u03c0H / (T\u00b7sinh kd) at ${site.bedDepthM} m. Longer periods reach deeper, which is why period matters as much as height.`,
        `${f1(best.ub, 3)} m/s`],
       ["Sediment threshold",
        `This site's substrate starts moving at ${f1(uCrit, 3)} m/s (calibration: ${site.sediment}, higher = finer and lighter).`,
-       `${f1(excess, 3)} m/s over`],
-      ["Penalty", `${f1(excess, 3)} m/s excess × ${P.stirGain}, capped at ${P.stirCap}.`, `-${f1(points)}`],
+       `${f1(best.excess, 3)} m/s over`],
+      ["Settling memory",
+       settling
+         ? `Sediment here falls out with a ${f1(mem.tau, 1)} h time constant, so ${Math.round(held * 100)}% of what was stirred up ${hoursSince} h ago is still in the water. That is why a calm afternoon after a rough morning is not a clear one.`
+         : `Nothing meaningful left over from earlier hours, so this hour's forcing is the whole story. When there is, it decays with a ${f1(mem?.tau ?? 0, 1)} h time constant.`,
+       `${f1(excess, 3)} m/s`],
+      ["Penalty", `${f1(excess, 3)} m/s suspended \u00d7 ${P.stirGain}, capped at ${P.stirCap}.`, `-${f1(points)}`],
     ],
   };
 }
@@ -122,24 +132,30 @@ function currentFactor(site, s) {
 }
 
 function rainFactor(site, s) {
-  const r = s.rain24 ?? 0;
+  // Exponentially weighted rather than a flat 24 h sum: a plume thins out
+  // gradually instead of every millimetre counting in full for a day and then
+  // vanishing on the hour. Normalised so steady rain reads the same as before.
+  const r = s.rainMem ?? s.rain24 ?? 0;
   const points = Math.min(P.rainCap, Math.pow(r, 0.7) * 2.2 * site.runoff);
+  const weighted = s.rainMem != null;
   return {
     key: "rain",
     label: "Runoff",
     points,
     tone: points > 10 ? "bad" : points > 3 ? "warn" : "good",
-    headline: r < 0.5 ? "No meaningful runoff" : `${f1(r)} mm fell in the last 24 h`,
+    headline: r < 0.5 ? "No meaningful runoff" : `${f1(r)} mm of rain still telling`,
     inputs: [
-      ["Rain, previous 24 h", `${f1(r)} mm`],
-      ["Site runoff sensitivity", `×${site.runoff}`],
+      ["Rain, decay-weighted", `${f1(r)} mm`],
+      ["Site runoff sensitivity", `\u00d7${site.runoff}`],
     ],
     chain: [
       ["Rainfall history",
-       "Summed over the full 24 h before the selected hour, using observed past hours where the model has them.",
+       weighted
+         ? `Every past hour counts, weighted by a ${RUNOFF_HOURS} h decay, so this morning's rain matters more than yesterday's and yesterday's has not vanished. Scaled to read the same as a 24 h total under steady rain.`
+         : "Summed over the full 24 h before the selected hour.",
        `${f1(r)} mm`],
       ["Runoff response",
-       `Compressed as mm^0.7 because the first few mm wash the most material off the land. Site sensitivity ×${site.runoff}.`,
+       `Compressed as mm^0.7 because the first few mm wash the most material off the land. Site sensitivity \u00d7${site.runoff}.`,
        `-${f1(points)}`],
     ],
   };
@@ -206,7 +222,7 @@ export function evaluate(site, s, tide, leadHours = 0) {
 
   // Visibility attenuates multiplicatively -- turbidity sources compound.
   const swell = factors[0], cur = factors[1], rain = factors[2];
-  const atten = 3.0 * Math.max(0, swell.ub - swell.uCrit)
+  const atten = 3.0 * swell.excess
               + 0.030 * rain.points
               + 0.10 * Math.max(0, cur.effKn - 0.8);
   const vis = clamp(site.maxVis * Math.exp(-atten), 3, site.maxVis);

@@ -138,3 +138,28 @@ export function moonLabel(p) {
 export const compass = (deg) => deg == null ? "--" :
   ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"]
   [Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+
+/**
+ * Instantaneous sediment forcing: the more damaging of the swell and wind-wave
+ * partitions rather than silently dropping one, gated by how much of it reaches
+ * this shore. It lives here rather than in scoring because src/history.js runs
+ * it over every loaded hour to build the settling memory, and scoring must not
+ * be a dependency of that.
+ */
+export function stirSource(site, s) {
+  const parts = [
+    { name: "swell", h: s.swellH, t: s.swellT, dir: s.swellDir },
+    { name: "wind wave", h: s.windWaveH, t: s.windWaveT, dir: s.windWaveDir },
+  ].filter((p) => p.h > 0 && p.t > 0);
+  if (!parts.length) parts.push({ name: "sea", h: s.waveH ?? 0, t: s.waveT ?? 6, dir: s.waveDir });
+
+  let best = null;
+  for (const p of parts) {
+    const exposure = directionalExposure(site, p.dir);
+    const hEff = p.h * exposure;
+    const ub = orbitalVelocity(hEff, p.t, site.bedDepthM);
+    if (!best || ub > best.ub) best = { ...p, exposure, hEff, ub };
+  }
+  const uCrit = criticalVelocity(site.sediment);
+  return { ...best, uCrit, excess: Math.max(0, best.ub - uCrit) };
+}
